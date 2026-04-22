@@ -1,0 +1,10 @@
+{
+  "projectId": "",
+  "orgId": "",
+  "buildCommand": "npm install",
+  "outputDirectory": ".",
+  "installCommand": "npm install",
+  "env": {
+    "NODE_ENV": "production"
+  }
+}

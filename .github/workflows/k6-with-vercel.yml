@@ -1,0 +1,155 @@
+name: K6 Test + Vercel Results Dashboard
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'spike_test.js'
+      - '.github/workflows/k6-with-vercel.yml'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  k6-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build k6 Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.k6
+          push: false
+          load: true
+          tags: k6-load-test:latest
+
+      - name: Run k6 test
+        id: test
+        run: |
+          docker run \
+            --rm \
+            --name k6-test \
+            k6-load-test:latest \
+            k6 run spike_test.js \
+            --out json=results.json
+        continue-on-error: true
+
+      - name: Upload results artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: k6-results-${{ github.run_number }}
+          path: results.json
+          retention-days: 90
+
+      - name: Prepare results for Vercel
+        if: always()
+        run: |
+          mkdir -p public
+          cp results.json public/
+          
+          # Create simple HTML dashboard
+          cat > public/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>K6 Test Results</title>
+              <style>
+                  body { font-family: Arial; margin: 20px; background: #f5f5f5; }
+                  .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+                  h1 { color: #333; }
+                  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; }
+                  .metric { background: #f9f9f9; padding: 15px; border-radius: 4px; border-left: 4px solid #007bff; }
+                  .metric-label { font-size: 12px; color: #666; text-transform: uppercase; }
+                  .metric-value { font-size: 24px; font-weight: bold; color: #333; margin-top: 10px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>K6 Load Test Results</h1>
+                  <p>Run: <code id="run"></code></p>
+                  <p>Time: <code id="time"></code></p>
+                  <div class="metrics" id="metrics">Loading...</div>
+              </div>
+              <script>
+                  fetch('/results.json')
+                      .then(r => r.json())
+                      .then(data => {
+                          document.getElementById('run').textContent = new Date().toISOString();
+                          document.getElementById('time').textContent = new Date().toLocaleString();
+                          
+                          const metrics = data.metrics || {};
+                          let html = '';
+                          
+                          if (metrics.http_reqs?.values?.count) {
+                              html += `<div class="metric">
+                                  <div class="metric-label">Total Requests</div>
+                                  <div class="metric-value">${metrics.http_reqs.values.count}</div>
+                              </div>`;
+                          }
+                          
+                          if (metrics.http_req_failed?.values?.value) {
+                              html += `<div class="metric">
+                                  <div class="metric-label">Failed Requests</div>
+                                  <div class="metric-value">${metrics.http_req_failed.values.value}</div>
+                              </div>`;
+                          }
+                          
+                          if (metrics.http_req_duration?.values?.avg) {
+                              html += `<div class="metric">
+                                  <div class="metric-label">Avg Response Time</div>
+                                  <div class="metric-value">${Math.round(metrics.http_req_duration.values.avg)}ms</div>
+                              </div>`;
+                          }
+                          
+                          if (metrics.http_req_duration?.values?.['p(95)']) {
+                              html += `<div class="metric">
+                                  <div class="metric-label">P95 Response Time</div>
+                                  <div class="metric-value">${Math.round(metrics.http_req_duration.values['p(95)'])}ms</div>
+                              </div>`;
+                          }
+                          
+                          if (metrics.vus_max?.values?.value) {
+                              html += `<div class="metric">
+                                  <div class="metric-label">Peak VUs</div>
+                                  <div class="metric-value">${metrics.vus_max.values.value}</div>
+                              </div>`;
+                          }
+                          
+                          document.getElementById('metrics').innerHTML = html || 'No metrics available';
+                      })
+                      .catch(err => {
+                          console.error('Error loading results:', err);
+                          document.getElementById('metrics').innerHTML = 'Error loading results';
+                      });
+              </script>
+          </body>
+          </html>
+          EOF
+        continue-on-error: true
+
+      - name: Deploy to Vercel
+        uses: vercel/action@v4
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## K6 Test Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.test.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: k6-results-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Vercel Dashboard: Check deployment" >> $GITHUB_STEP_SUMMARY
