@@ -1,0 +1,79 @@
+name: K6 Load Test (Native - No Docker)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  k6-native:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6-stable.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Verify k6 installation
+        run: k6 version
+
+      - name: Run k6 test
+        id: test
+        run: |
+          k6 run spike_test.js \
+            --out json=results.json \
+            --summary-export=summary.json
+        continue-on-error: true
+
+      - name: Generate test report
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const testResults = JSON.parse(fs.readFileSync('results.json', 'utf8'));
+            
+            const metrics = testResults.metrics || {};
+            
+            let summary = `## K6 Load Test Results 📊\n\n`;
+            summary += `**Status:** ${`${{ steps.test.outcome }}`}\n`;
+            summary += `**Run:** [#${context.runNumber}](${context.payload.pull_request?.html_url || 'N/A'})\n\n`;
+            
+            if (metrics.http_reqs) {
+              const reqs = metrics.http_reqs.values?.count || 0;
+              summary += `- **Total Requests:** ${reqs}\n`;
+            }
+            if (metrics.http_req_failed) {
+              const failed = metrics.http_req_failed.values?.value || 0;
+              summary += `- **Failed Requests:** ${failed}\n`;
+            }
+            if (metrics.http_req_duration) {
+              const dur = metrics.http_req_duration.values;
+              summary += `- **Avg Response Time:** ${dur?.avg?.toFixed(2) || 'N/A'}ms\n`;
+            }
+            if (metrics.vus_max) {
+              summary += `- **Peak VUs:** ${metrics.vus_max.values?.value || 'N/A'}\n`;
+            }
+            
+            core.summary.addRaw(summary);
+            await core.summary.write();
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: k6-results-${{ github.run_number }}
+          path: |
+            results.json
+            summary.json
+          retention-days: 30
+
+      - name: Fail if test failed
+        if: steps.test.outcome == 'failure'
+        run: exit 1

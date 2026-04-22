@@ -1,0 +1,60 @@
+name: K6 Load Test
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+  
+  # Scheduled runs (every day at 2 AM UTC)
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # On push to main (optional - comment out if not needed)
+  # push:
+  #   branches: [ main ]
+  #   paths:
+  #     - 'spike_test.js'
+  #     - '.github/workflows/k6-load-test.yml'
+
+jobs:
+  k6-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.k6
+          push: false
+          load: true
+          tags: k6-load-test:latest
+
+      - name: Run k6 test in Docker
+        run: |
+          docker run \
+            --rm \
+            --name k6-test \
+            k6-load-test:latest \
+            k6 run spike_test.js
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: k6-results
+          path: |
+            results.json
+            results.html
+          retention-days: 30
+
+      - name: Post results to GitHub
+        if: always()
+        run: |
+          echo "## K6 Load Test Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "Test completed at $(date)" >> $GITHUB_STEP_SUMMARY

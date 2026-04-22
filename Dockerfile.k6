@@ -1,0 +1,11 @@
+FROM grafana/k6:latest
+
+# Set working directory
+WORKDIR /app
+
+# Copy k6 script
+COPY spike_test.js .
+
+# Set default command
+ENTRYPOINT ["k6"]
+CMD ["run", "spike_test.js"]
