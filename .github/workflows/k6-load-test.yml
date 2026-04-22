@@ -35,13 +35,13 @@ jobs:
           load: true
           tags: k6-load-test:latest
 
-      - name: Run k6 test in Docker
+      - name: Run Node app with k6 in Docker
         run: |
           docker run \
             --rm \
             --name k6-test \
-            k6-load-test:latest \
-            k6 run spike_test.js
+            -e RUN_ONCE=true \
+            k6-load-test:latest
 
       - name: Upload test results
         if: always()

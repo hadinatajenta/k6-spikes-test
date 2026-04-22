@@ -30,6 +30,12 @@ const main = async () => {
         } catch (error) {
             console.error('Error during execution:', error);
         }
+
+        if (process.env.RUN_ONCE === 'true') {
+            console.log('✅ RUN_ONCE is set to true. Exiting after one run.');
+            break;
+        }
+
         console.log('⏳ Waiting 5 seconds before the next execution...\n');
         await delay(5000);
     }
