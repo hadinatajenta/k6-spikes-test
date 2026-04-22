@@ -11,7 +11,7 @@ const runK6 = () => {
         console.log('\n=======================================');
         console.log('🚀 Starting k6 spike_test.js...');
         console.log('=======================================\n');
-        
+
         const k6Process = spawn(k6Path, ['run', 'spike_test.js'], { stdio: 'inherit' });
 
         k6Process.on('close', (code) => {
@@ -32,7 +32,7 @@ const main = async (res) => {
     try {
         if (res) res.write('Test started...\n');
         await runK6();
-        if (res) res.write('Test completed.\n');
+        if (res) res.write('Test completed!\n');
     } catch (error) {
         console.error('Error during execution:', error);
         if (res) res.write(`Error: ${error.message}\n`);
@@ -43,17 +43,17 @@ const main = async (res) => {
 const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.write('Vercel K6 Triggered\n');
-    
+
     // Execute once for Vercel (since it will be killed anyway)
     await main(res);
-    
+
     res.end('Execution finished (or timed out by Vercel)\n');
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    
+
     // If NOT on Vercel, run the infinite loop
     if (!process.env.VERCEL) {
         (async () => {
